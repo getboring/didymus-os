@@ -1,10 +1,9 @@
 # iso/iso.nix
 # Minimal Didymus OS installation ISO configuration
 
-{ config, lib, pkgs, ... }:
+{ config, pkgs, ... }:
 
 {
-  # Inherit Didymus identity
   didymus = {
     enable = true;
     version = "0.1.0-scaffold";
@@ -13,7 +12,6 @@
     tiredTest = true;
   };
 
-  # ISO-specific
   isoImage = {
     volumeID = "DIDYMUS_OS";
     isoName = "didymus-os-${config.didymus.version}-${pkgs.stdenv.hostPlatform.system}.iso";
@@ -21,15 +19,14 @@
     makeUsbBootable = true;
   };
 
-  # Comfortable live environment
-  services.getty.autologinUser = "nixos";  # or a didymus user later
+  services.getty.autologinUser = "nixos";
   environment.systemPackages = with pkgs; [
     vim
     git
-    # didymus installer helpers will go here
   ];
 
-  # Message of the day
+  system.stateVersion = "26.05";
+
   environment.etc."motd".text = ''
 
     ██████╗ ██╗██████╗ ██╗   ██╗███╗   ███╗██╗   ██╗███████╗

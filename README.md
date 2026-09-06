@@ -27,40 +27,63 @@ It is **not** another flashy distro. It is NixOS with a twin soul.
 ## Status
 
 **v0.1 — Scaffolding** (September 2026)  
-This is the first cut: flake + modules + host example + ISO skeleton.  
-Next: twin generation manager, receipt tooling, mobile/ops surfaces, agent integration.
+Flake + modules + lab host + QEMU twin + NixOS VM test + cloud CI.  
+A physical machine is not required to evaluate, build, or boot a generation.
 
-## Quick start (on any Nix-capable machine)
+## Quick start (no real computer)
+
+You do not need a tablet or a lab box. You need Nix (locally, in Codespaces, or in CI).
 
 ```bash
-# Clone
 git clone https://github.com/getboring/didymus-os.git
 cd didymus-os
-
-# Enter the development shell
 nix develop
 
-# Build a configuration for the example host
-nix build .#nixosConfigurations.didymus-lab.config.system.build.toplevel
+# 1. Prove the configs exist (no KVM, seconds)
+nix eval .#nixosConfigurations.qemu-lab.config.system.build.toplevel.drvPath
+nix eval .#nixosConfigurations.didymus-lab.config.system.build.toplevel.drvPath
 
-# Or create an ISO (when ready)
-nix build .#iso
+# 2. Boot a VM and assert the twin layer (needs /dev/kvm)
+nix build .#checks.x86_64-linux.didymus-lab -L
+
+# 3. Interactive QEMU — no physical disk is touched
+nix build .#qemu-vm
+./result/bin/run-didymus-qemu-vm
 ```
+
+From a phone: push to `main` or open a PR. GitHub Actions and Garnix do steps 1–3.  
+Garnix does **not** use Actions minutes — enable the [Garnix GitHub App](https://garnix.io) on this repo if Actions runners are dark.
+
+Full ladder, including ISO: [`docs/TESTING.md`](docs/TESTING.md).
+
+## Hosts
+
+| Flake output | What it is | Disks |
+| --- | --- | --- |
+| `nixosConfigurations.didymus-lab` | Physical lab twin | labelled `didymus-root` / `didymus-boot` |
+| `nixosConfigurations.qemu-lab` | Same software, QEMU | virtio, auto-format |
+| `checks.x86_64-linux.didymus-lab` | Headless NixOS VM test | none (test driver) |
+| `packages.qemu-vm` | Interactive `run-didymus-qemu-vm` | none on the host |
+| `packages.iso` | Live installer ISO | opt-in, not a CI gate |
 
 ## Project layout
 
 ```
 didymus-os/
 ├── flake.nix                 # Entry point
+├── flake.lock                # Pinned nixos-26.05
+├── garnix.yaml               # Public Nix CI (no Actions minutes)
 ├── modules/                  # Didymus modules
 │   ├── twin.nix              # Twin generation + receipt system
 │   ├── boring.nix            # Tired-test defaults
-│   ├── didymus.nix           # Core options
-│   └── ...
-├── hosts/                    # Host-specific configs
-│   └── didymus-lab/
+│   └── didymus.nix           # Core options
+├── hosts/
+│   ├── didymus-lab/          # Software + physical hardware
+│   └── qemu-lab/             # VM overlay (no real disks)
 ├── profiles/                 # Ready-to-use profiles (desktop, server, agent, etc.)
 ├── docs/
+│   ├── philosophy.md
+│   └── TESTING.md            # Cloud / QEMU / CI ladder
 ├── scripts/
 └── iso/
 ```
@@ -72,6 +95,8 @@ Didymus OS takes the best of NixOS (pure, declarative, rollbacks) and adds an ex
 ## Roadmap (first release)
 
 - [x] Flake scaffold + core modules
+- [x] QEMU lab host + NixOS VM test (no physical machine)
+- [x] Cloud CI (GitHub Actions + Garnix)
 - [ ] Twin generation manager (systemd + CLI)
 - [ ] Signed receipts (Ed25519 + content-addressed)
 - [ ] `didymus` CLI (`switch`, `twin`, `receipts`, `verify`)
