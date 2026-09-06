@@ -1,0 +1,21 @@
+# Nix
+result
+result-*
+.direnv/
+.pre-commit-config.yaml
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (never commit)
+*.age
+secrets/
+*.key
+id_ed25519*
