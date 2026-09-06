@@ -2,32 +2,32 @@
   description = "Didymus OS — a twin of NixOS. Declarative, verifiable, boring on purpose.";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
-    # Uncomment for unstable when needed:
-    # nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-    # Hardware support (optional, for real machines later)
-    # nixos-hardware.url = "github:NixOS/nixos-hardware";
-
-    # Home Manager can be added later as a twin layer
-    # home-manager.url = "github:nix-community/home-manager/release-24.11";
-    # home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    # Current stable. 24.11 is EOL; this matches getboring/boring-agent-appliance.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 
-  outputs = { self, nixpkgs, ... }@inputs:
+  outputs =
+    { self, nixpkgs, ... }@inputs:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      # Shared Didymus modules
+      # Shared Didymus modules. Hardware stays on the host, not here.
       didymusModules = [
         ./modules/didymus.nix
         ./modules/boring.nix
         ./modules/twin.nix
       ];
+
+      mkHost =
+        extraModules:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = { inherit inputs self; };
+          modules = didymusModules ++ extraModules;
+        };
     in
     {
-      # Development shell
       devShells.${system}.default = pkgs.mkShell {
         name = "didymus-os";
         packages = with pkgs; [
@@ -35,43 +35,80 @@
           git
           jq
           age
-          # later: didymus-cli
         ];
         shellHook = ''
           echo "Didymus OS development shell"
           echo "  Clever breaks. Boring lasts."
-          echo "  Run: nix build .#nixosConfigurations.didymus-lab.config.system.build.toplevel"
+          echo "  Eval:  nix eval .#nixosConfigurations.qemu-lab.config.system.build.toplevel.drvPath"
+          echo "  Test:  nix build .#checks.x86_64-linux.didymus-lab -L"
+          echo "  VM:    nix build .#qemu-vm && ./result/bin/run-didymus-qemu-vm"
         '';
       };
 
-      # Example host configuration
       nixosConfigurations = {
-        didymus-lab = nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs = { inherit inputs; };
-          modules = didymusModules ++ [
-            ./hosts/didymus-lab/configuration.nix
-          ];
-        };
+        # Physical lab host — needs labelled disks. Not for QEMU.
+        didymus-lab = mkHost [
+          ./hosts/didymus-lab/configuration.nix
+          ./hosts/didymus-lab/hardware.nix
+        ];
 
-        # Placeholder for future hosts
-        # didymus-server = ...
-        # didymus-desktop = ...
+        # Same software, no physical disks. This is the cloud / laptop path.
+        qemu-lab = mkHost [
+          ./hosts/didymus-lab/configuration.nix
+          ./hosts/qemu-lab/default.nix
+        ];
       };
 
-      # ISO builder (skeleton — will produce a bootable twin ISO later)
-      packages.${system}.iso = (nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = didymusModules ++ [
-          ./iso/iso.nix
-          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
-        ];
-      }).config.system.build.isoImage;
+      packages.${system} = {
+        default = self.nixosConfigurations.didymus-lab.config.system.build.toplevel;
+        qemu-vm = self.nixosConfigurations.qemu-lab.config.system.build.vm;
+        # ISO is opt-in: large, and not part of `nix flake check`.
+        iso =
+          (mkHost [
+            ./iso/iso.nix
+            "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
+          ]).config.system.build.isoImage;
+      };
 
-      # Default package for convenience
-      packages.${system}.default = self.nixosConfigurations.didymus-lab.config.system.build.toplevel;
+      # Boots a VM and asserts the twin layer. Needs /dev/kvm.
+      checks.${system}.didymus-lab = pkgs.testers.runNixOSTest {
+        name = "didymus-lab";
 
-      # Formatter
+        nodes.machine =
+          { ... }:
+          {
+            imports = didymusModules ++ [ ./hosts/didymus-lab/configuration.nix ];
+            virtualisation = {
+              memorySize = 2048;
+              cores = 2;
+            };
+          };
+
+        testScript = ''
+          machine.wait_for_unit("multi-user.target")
+          machine.wait_for_unit("didymus-twin-init.service")
+          machine.wait_for_unit("sshd.service")
+
+          with subtest("identity is Didymus, not a nameless NixOS"):
+              version = machine.succeed("cat /etc/didymus/version").strip()
+              assert version == "0.1.0-scaffold", version
+              hostname = machine.succeed("hostname").strip()
+              assert hostname == "didymus-lab", hostname
+              machine.succeed("test -f /etc/didymus/README")
+              machine.succeed("test -f /etc/didymus/TWIN.md")
+              machine.succeed("test -f /etc/didymus/TIRED-TEST.md")
+
+          with subtest("the twin receipt directory was initialized"):
+              machine.succeed("test -d /var/lib/didymus/receipts")
+              machine.succeed("test -f /var/lib/didymus/receipts/.initialized")
+              init = machine.succeed("cat /var/lib/didymus/receipts/.initialized")
+              assert "stable-experimental" in init, init
+
+          with subtest("twin init stays up after a oneshot"):
+              machine.succeed("systemctl is-active didymus-twin-init.service")
+        '';
+      };
+
       formatter.${system} = pkgs.nixfmt-rfc-style;
     };
 }

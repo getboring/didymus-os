@@ -1,0 +1,15 @@
+# Public-flake CI that does not spend GitHub Actions minutes.
+# Enable the Garnix GitHub App on this repository: https://garnix.io
+#
+# ISO is excluded on purpose — it is a large opt-in artifact, not a gate.
+
+builds:
+  include:
+    - checks.x86_64-linux.*
+    - devShells.x86_64-linux.default
+    - packages.x86_64-linux.default
+    - packages.x86_64-linux.qemu-vm
+    - nixosConfigurations.didymus-lab
+    - nixosConfigurations.qemu-lab
+  exclude:
+    - packages.x86_64-linux.iso
